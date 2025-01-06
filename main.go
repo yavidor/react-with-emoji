@@ -51,7 +51,7 @@ func downloadImage(s *WhatsappService, msg *events.Message) error {
 	return nil
 }
 
-func reactWithEmoji(cc *genai.Client, cs *genai.ChatSession, ctx context.Context) func(*WhatsappService, *events.Message) error {
+func reactWithEmoji(cs *genai.ChatSession, ctx context.Context) func(*WhatsappService, *events.Message) error {
 	return func(s *WhatsappService, msg *events.Message) error {
 		var emoji string
 		switch msg.Info.Type {
@@ -62,26 +62,33 @@ func reactWithEmoji(cc *genai.Client, cs *genai.ChatSession, ctx context.Context
 			} else {
 				content = *msg.Message.GetExtendedTextMessage().Text
 			}
-			emoji, err := askGemini(cs, ctx, content)
-			_ = emoji
+			var err error
+			emoji, err = askGemini(cs, ctx, content)
 			if err != nil {
 				return err
 			}
 		case "media":
-			file, err := os.ReadFile(getImagePath(msg))
-			if err != nil {
-				return err
+			if msg.Info.MediaType == "image" {
+				file, err := os.ReadFile(getImagePath(msg))
+				if err != nil {
+					return err
+				}
+				parts := genai.ImageData(*msg.Message.GetImageMessage().Mimetype, file)
+				resp, err := cs.SendMessage(ctx, parts)
+				if err != nil {
+					return err
+				}
+				emoji = string(resp.Candidates[0].Content.Parts[0].(genai.Text))
+			} else {
+
+				emoji = "🇳"
 			}
-			parts := genai.ImageData(*msg.Message.GetImageMessage().Mimetype, file)
-			resp, err := cs.SendMessage(ctx, parts)
-			if err != nil {
-				return err
-			}
-			emoji = string(resp.Candidates[0].Content.Parts[0].(genai.Text))
 
 		default:
 			emoji = "🇳"
 		}
+		fmt.Println(emoji)
+		s.client.Log.Infof(emoji)
 		s.React(msg.Info.Sender, msg.Info.Chat, msg.Info.ID, strings.ReplaceAll(emoji[:len(emoji)-1], "\n", ""))
 		fmt.Println(strings.Join(strings.Split(emoji, ""), ","))
 		fmt.Println(emoji[:len(emoji)-1])
@@ -146,7 +153,7 @@ func main() {
 	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	whatsapp := NewWhatsappService(client)
-	whatsapp.OnMessage(reactWithEmoji(gemini, cs, ctx)).OnMessage(printMessage).Init()
+	whatsapp.OnMessage(downloadImage).OnMessage(reactWithEmoji(cs, ctx)).OnMessage(printMessage).Init()
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
