@@ -30,8 +30,13 @@ func askGemini(cs *genai.ChatSession, ctx context.Context, message string) (stri
 }
 
 func getImagePath(msg *events.Message) string {
-
 	exts, _ := mime.ExtensionsByType(*msg.Message.GetImageMessage().Mimetype)
+	path := fmt.Sprintf("/home/yavidor/Downloads/Whatsapp/%s%s", msg.Info.ID, exts[0])
+	return path
+}
+
+func getAudioPath(msg *events.Message) string {
+	exts, _ := mime.ExtensionsByType(*msg.Message.GetAudioMessage().Mimetype)
 	path := fmt.Sprintf("/home/yavidor/Downloads/Whatsapp/%s%s", msg.Info.ID, exts[0])
 	return path
 }
@@ -51,7 +56,22 @@ func downloadImage(s *WhatsappService, msg *events.Message) error {
 	return nil
 }
 
-func reactWithEmoji(cs *genai.ChatSession, ctx context.Context) func(*WhatsappService, *events.Message) error {
+func downloadAudio(s *WhatsappService, msg *events.Message) error {
+	if msg.Info.Type == "media" && msg.Info.MediaType == "audio" {
+		img, err := s.client.Download(msg.Message.GetAudioMessage())
+		if err != nil {
+			return err
+		}
+		path := getAudioPath(msg)
+		err = os.WriteFile(path, img, 0600)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reactWithEmoji(gemini *genai.Client, cs *genai.ChatSession, ctx context.Context) func(*WhatsappService, *events.Message) error {
 	return func(s *WhatsappService, msg *events.Message) error {
 		var emoji string
 		switch msg.Info.Type {
@@ -80,7 +100,19 @@ func reactWithEmoji(cs *genai.ChatSession, ctx context.Context) func(*WhatsappSe
 				}
 				emoji = string(resp.Candidates[0].Content.Parts[0].(genai.Text))
 			} else {
-
+				if msg.Info.MediaType == "audio" {
+					file, err := gemini.UploadFileFromPath(ctx, getAudioPath(msg), nil)
+					if err != nil {
+						log.Fatal(err)
+					}
+					defer gemini.DeleteFile(ctx, file.Name)
+					parts := genai.FileData{URI: file.URI}
+					resp, err := cs.SendMessage(ctx, parts)
+					if err != nil {
+						return err
+					}
+					emoji = string(resp.Candidates[0].Content.Parts[0].(genai.Text))
+				}
 				emoji = "🇳"
 			}
 
@@ -89,7 +121,7 @@ func reactWithEmoji(cs *genai.ChatSession, ctx context.Context) func(*WhatsappSe
 		}
 		fmt.Println(emoji)
 		s.client.Log.Infof(emoji)
-		s.React(msg.Info.Sender, msg.Info.Chat, msg.Info.ID, strings.ReplaceAll(emoji[:len(emoji)-1], "\n", ""))
+		s.React(msg.Info.Sender, msg.Info.Chat, msg.Info.ID, strings.ReplaceAll(strings.ReplaceAll(emoji[:len(emoji)-1], "\n", ""), "�", ""))
 		fmt.Println(strings.Join(strings.Split(emoji, ""), ","))
 		fmt.Println(emoji[:len(emoji)-1])
 		return nil
@@ -121,10 +153,9 @@ func main() {
 			},
 			Role: "user",
 		},
-
 		{
 			Parts: []genai.Part{
-				genai.Text("I hate Zildon A.K.A Ziladon A.K.A זילדון with burning passion"),
+				genai.Text("I hate Zildon A.K.A Ziladon A.K.A זילדון with a burning passion"),
 			},
 			Role: "model",
 		},
@@ -153,7 +184,7 @@ func main() {
 	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	whatsapp := NewWhatsappService(client)
-	whatsapp.OnMessage(downloadImage).OnMessage(reactWithEmoji(cs, ctx)).OnMessage(printMessage).Init()
+	whatsapp.OnMessage(downloadImage).OnMessage(downloadAudio).OnMessage(reactWithEmoji(gemini, cs, ctx)).OnMessage(printMessage).Init()
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
