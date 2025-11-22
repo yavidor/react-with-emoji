@@ -57,7 +57,7 @@ func downloadImage(s *WhatsappService, msg *events.Message) error {
 }
 
 func downloadAudio(s *WhatsappService, msg *events.Message) error {
-	if msg.Info.Type == "media" && msg.Info.MediaType == "audio" {
+	if msg.Info.Type == "media" && msg.Info.MediaType == "ptt" {
 		img, err := s.client.Download(msg.Message.GetAudioMessage())
 		if err != nil {
 			return err
@@ -88,6 +88,7 @@ func reactWithEmoji(gemini *genai.Client, cs *genai.ChatSession, ctx context.Con
 				return err
 			}
 		case "media":
+			fmt.Println(msg.Info.MediaType)
 			if msg.Info.MediaType == "image" {
 				file, err := os.ReadFile(getImagePath(msg))
 				if err != nil {
@@ -100,7 +101,7 @@ func reactWithEmoji(gemini *genai.Client, cs *genai.ChatSession, ctx context.Con
 				}
 				emoji = string(resp.Candidates[0].Content.Parts[0].(genai.Text))
 			} else {
-				if msg.Info.MediaType == "audio" {
+				if msg.Info.MediaType == "ptt" {
 					file, err := gemini.UploadFileFromPath(ctx, getAudioPath(msg), nil)
 					if err != nil {
 						log.Fatal(err)
