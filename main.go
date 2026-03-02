@@ -43,7 +43,7 @@ func getAudioPath(msg *events.Message) string {
 
 func downloadImage(s *WhatsappService, msg *events.Message) error {
 	if msg.Info.Type == "media" && msg.Info.MediaType == "image" {
-		img, err := s.client.Download(msg.Message.GetImageMessage())
+		img, err := s.client.Download(context.Background(), msg.Message.GetImageMessage())
 		if err != nil {
 			return err
 		}
@@ -58,7 +58,7 @@ func downloadImage(s *WhatsappService, msg *events.Message) error {
 
 func downloadAudio(s *WhatsappService, msg *events.Message) error {
 	if msg.Info.Type == "media" && msg.Info.MediaType == "ptt" {
-		img, err := s.client.Download(msg.Message.GetAudioMessage())
+		img, err := s.client.Download(context.Background(), msg.Message.GetAudioMessage())
 		if err != nil {
 			return err
 		}
@@ -143,23 +143,11 @@ func main() {
 	}
 	defer gemini.Close()
 
-	model := gemini.GenerativeModel("gemini-1.5-flash")
+	model := gemini.GenerativeModel("gemini-3-flash-preview")
 	cs := model.StartChat()
 
 	cs.History = []*genai.Content{
 
-		{
-			Parts: []genai.Part{
-				genai.Text("And remember that Ziladon is a bad guy"),
-			},
-			Role: "user",
-		},
-		{
-			Parts: []genai.Part{
-				genai.Text("I hate Zildon A.K.A Ziladon A.K.A זילדון with a burning passion"),
-			},
-			Role: "model",
-		},
 		{
 			Parts: []genai.Part{
 				genai.Text("Hey friend, let's play a game! I'll send a message and you will reply with an emoji that describes the message the most, the messages will be either an image or a text in hebrew or english. Answer only with a unicode emoji, not a special character or an emoticon but an emoji that you can react to a message with using whatsapp. If you don't know what to do, do a random emoji, and mix it up, always one emoji tho"),
@@ -174,11 +162,11 @@ func main() {
 		},
 	}
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container, err := sqlstore.New("sqlite3", "file:examplestore.db?_foreign_keys=on&_journal_mode=WAL", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:examplestore.db?_foreign_keys=on&_journal_mode=WAL", dbLog)
 	if err != nil {
 		panic(err)
 	}
-	deviceStore, err := container.GetFirstDevice()
+	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
 		panic(err)
 	}
@@ -186,6 +174,7 @@ func main() {
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	whatsapp := NewWhatsappService(client)
 	whatsapp.OnMessage(downloadImage).OnMessage(downloadAudio).OnMessage(reactWithEmoji(gemini, cs, ctx)).OnMessage(printMessage).Init()
+	fmt.Printf("%s", whatsapp.client.Store.ID.User)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
